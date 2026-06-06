@@ -84,6 +84,16 @@ fi
 
 # ── 4. Extract panel files ────────────────────────────────────
 info "Extracting panel files to $INSTALL_DIR..."
+# Find the tarball — it could be in current dir, $INSTALL_DIR, or script's dir
+TARBALL_PATH=""
+for candidate in "./$TARBALL" "$INSTALL_DIR/$TARBALL" "$(dirname "$0")/$TARBALL"; do
+  [[ -f "$candidate" ]] && TARBALL_PATH="$candidate" && break
+done
+[[ -z "$TARBALL_PATH" ]] && die "Cannot find $TARBALL anywhere. Make sure it's in the same directory."
+
+# Move tarball to /tmp so it survives the rm -rf below
+cp "$TARBALL_PATH" "/tmp/$TARBALL"
+
 if [[ -d "$INSTALL_DIR" ]]; then
   warn "Existing install found — backing up data directory..."
   [[ -d "$INSTALL_DIR/dist/data" ]] && cp -r "$INSTALL_DIR/dist/data" /tmp/xhttp-panel-data-backup 2>/dev/null || true
@@ -91,7 +101,8 @@ fi
 
 rm -rf "$INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
-tar -xzf "$TARBALL" -C "$INSTALL_DIR"
+tar -xzf "/tmp/$TARBALL" -C "$INSTALL_DIR"
+rm -f "/tmp/$TARBALL"
 ok "Files extracted"
 
 # ── 5. Restore data backup ────────────────────────────────────
