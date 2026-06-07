@@ -162,9 +162,12 @@ app.use("/api/v1/setup",     setupRoutes);
 if (existsSync(frontendPath)) {
   app.use("/_next",       express.static(join(frontendPath, "_next"), { maxAge: "1y" }));
   app.use("/favicon.ico", express.static(join(frontendPath, "favicon.ico")));
-  // Non-HTML static files only (images, manifest, etc.) — block any .html explicitly
+  // Only allow safe static assets — block .html, .htm, .txt and other non-asset files
+  // that Next.js generates (e.g. index.txt with RSC payloads) which would leak internal data.
   app.use((req, res, next) => {
-    if (req.path.endsWith(".html") || req.path.endsWith(".htm")) {
+    const ext = req.path.split(".").pop()?.toLowerCase() || "";
+    const blockedExts = new Set(["html", "htm", "txt", "json", "map"]);
+    if (blockedExts.has(ext)) {
       return res.status(404).send("Not found");
     }
     next();

@@ -343,22 +343,33 @@ router.post("/phase3/issue-cert", requireAuth, (req, res) => {
   // IMPORTANT: use ; (not &&) so nginx ALWAYS restarts even if acme.sh fails
   // Clear stale ZeroSSL CA cache, force Let's Encrypt, and listen on IPv4 only
   // (same fixes as Deploy-Ubuntu.sh v1.0.3)
+  //
+  // IMPORTANT: cleanup() runs in a trap so that even if acme.sh fails, times out,
+  // or the script is killed, port 80 is freed and nginx/xray are restarted.
   const script = `
-    systemctl stop nginx 2>/dev/null; systemctl stop xray 2>/dev/null; fuser -k 80/tcp 2>/dev/null; sleep 1;
-    rm -rf /root/.acme.sh/ca 2>/dev/null;
-    rm -f /root/.acme.sh/account.conf 2>/dev/null;
-    /root/.acme.sh/acme.sh --set-default-ca --server letsencrypt 2>&1;
-    /root/.acme.sh/acme.sh --register-account -m admin@${safeDomain} --server letsencrypt 2>&1;
-    /root/.acme.sh/acme.sh --issue -d ${safeDomain} --standalone --keylength ec-256 --listen-v4 --server letsencrypt --force 2>&1;
-    ACME_EXIT=$?;
-    systemctl start nginx 2>/dev/null; systemctl start xray 2>/dev/null;
-    exit $ACME_EXIT
+    cleanup() {
+      fuser -k 80/tcp 2>/dev/null || true
+      sleep 1
+      systemctl start nginx 2>/dev/null || true
+      systemctl start xray 2>/dev/null || true
+    }
+    trap cleanup EXIT
+
+    systemctl stop nginx 2>/dev/null; systemctl stop xray 2>/dev/null
+    fuser -k 80/tcp 2>/dev/null; sleep 1
+
+    rm -rf /root/.acme.sh/ca 2>/dev/null
+    rm -f /root/.acme.sh/account.conf 2>/dev/null
+    /root/.acme.sh/acme.sh --set-default-ca --server letsencrypt 2>&1
+    /root/.acme.sh/acme.sh --register-account -m admin@${safeDomain} --server letsencrypt 2>&1
+    /root/.acme.sh/acme.sh --issue -d ${safeDomain} --standalone --keylength ec-256 --listen-v4 --server letsencrypt --force 2>&1
+    exit $?
   `;
 
   exec(script, { cwd: "/root", timeout: 120000, shell: "/bin/bash" }, (err, stdout, stderr) => {
+    // Safety: even if exec timed out and trap didn't fire, force cleanup
+    exec("fuser -k 80/tcp 2>/dev/null; sleep 1; systemctl start nginx 2>/dev/null; systemctl start xray 2>/dev/null", { cwd: "/root", shell: "/bin/bash" });
     if (err) {
-      // Safety: always ensure nginx is back up (e.g. if exec timed out, the script's own restart never ran)
-      exec("systemctl start nginx 2>/dev/null", { cwd: "/root" });
       certJob = { status: "error", output: stdout || stderr || err.message };
     } else {
       certJob = { status: "done", output: stdout || "Certificate issued successfully" };
@@ -534,15 +545,28 @@ router.post("/phase4/test-connection", requireAuth, (req, res) => {
   const { domain } = req.body;
   if (!domain) { res.status(400).json({ error: "Domain is required" }); return; }
 
+  // Read port from installer state (default 443)
+  const state = readInstallerState();
+  const port = state.CFG_INBOUND_PORT || "443";
+  const path = state.CFG_RELAY_PATH || "/api";
+  const safeDomain = domain.replace(/[^a-zA-Z0-9._-]/g, "");
+
+  // Use -k (insecure) to accept self-signed certs, and hit the actual xray port + relay path
+  const portSuffix = port === "443" ? "" : `:${port}`;
+  const testUrl = `https://${safeDomain}${portSuffix}${path}`;
+
   try {
     const result = run(
-      `curl -sS -o /dev/null -w '%{http_code}|%{time_total}' --max-time 10 "https://${domain}" 2>&1`
+      `curl -sk -o /dev/null -w '%{http_code}|%{time_total}' --max-time 10 "${testUrl}" 2>&1`
     );
     if (result.ok) {
-      const [code, time] = result.output.split("|");
-      res.json({ success: true, statusCode: Number(code), responseTime: parseFloat(time) });
+      const parts = result.output.trim().split("|");
+      const code = Number(parts[0]) || 0;
+      const time = parseFloat(parts[1]) || 0;
+      // 4xx from xray = relay is alive (rejects invalid handshake), 2xx = also fine
+      res.json({ success: code > 0 && code < 500, statusCode: code, responseTime: time, url: testUrl });
     } else {
-      res.json({ success: false, output: result.output });
+      res.json({ success: false, output: result.output, url: testUrl });
     }
   } catch (err: any) {
     res.status(500).json({ error: err.message });
