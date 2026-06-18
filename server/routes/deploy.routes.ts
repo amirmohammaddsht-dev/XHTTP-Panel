@@ -6,7 +6,6 @@ import { decrypt } from "../services/crypto.service.js";
 import { deployToVercel, deleteVercelProject } from "../services/vercel.service.js";
 import { deployToNetlify, deleteNetlifySite } from "../services/netlify.service.js";
 import { deployToAzure, deleteAzureDeployment, DeployProgressEvent, AZURE_DEPLOY_STEPS } from "../services/azure.service.js";
-import { deployToDeno, deleteDenoProject } from "../services/deno.service.js";
 import { deployToRailway, deleteRailwayProject, RAILWAY_DEPLOY_STEPS } from "../services/railway.service.js";
 import { deployToFastly, deleteFastlyService, FASTLY_DEPLOY_STEPS } from "../services/fastly.service.js";
 import { readInstallerState, buildConfigLinkForHost } from "../services/xray.service.js";
@@ -212,53 +211,6 @@ router.post(
         db.prepare("UPDATE deployments SET status='active', deploy_url=?, config_json=?, updated_at=datetime('now') WHERE id=?")
           .run(result.url, JSON.stringify({ siteId: result.siteId, configLink }), deployId);
         db.prepare("INSERT INTO activity_log (action, detail) VALUES (?, ?)").run("deploy", `Deployed ${projectName} to Netlify: ${result.url}`);
-        emitProgress(deployId, { step: TOTAL, total: TOTAL, label: "Deployed successfully!", status: "done", url: result.url, config: configLink ?? undefined });
-      } catch (err) {
-        db.prepare("UPDATE deployments SET status='failed', config_json=?, updated_at=datetime('now') WHERE id=?")
-          .run(JSON.stringify({ error: String(err) }), deployId);
-        emitProgress(deployId, { step: 1, total: TOTAL, label: "Deployment failed", detail: String(err), status: "error" });
-      }
-    });
-  })
-);
-
-// ── Deno ─────────────────────────────────────────────────────────────────────
-router.post(
-  "/deno",
-  requireAuth,
-  asyncHandler(async (req, res) => {
-    const { tokenId, projectName, targetDomain, relayPath, publicPath } = req.body;
-    if (!tokenId || !projectName || !targetDomain) {
-      res.status(400).json({ error: "tokenId, projectName, and targetDomain are required" });
-      return;
-    }
-    const { data } = getTokenData(tokenId);
-    const db = getDb();
-    const deployId = Number(
-      db.prepare(`INSERT INTO deployments (platform, token_id, project_name, target_domain, relay_path, public_path, status)
-         VALUES ('deno', ?, ?, ?, ?, ?, 'deploying')`)
-        .run(tokenId, projectName, targetDomain, relayPath || "/api", publicPath || "/api")
-        .lastInsertRowid
-    );
-    initStream(deployId);
-    res.status(202).json({ id: deployId, status: "deploying" });
-
-    runDeployWithSSE(deployId, async () => {
-      const TOTAL = 4;
-      try {
-        emitProgress(deployId, { step: 1, total: TOTAL, label: "Resolving Deno organization...", status: "active" });
-        const result = await deployToDeno({
-          apiToken: data.apiToken, orgName: data.orgName, projectName, targetDomain,
-          relayPath: relayPath || "/api", publicPath: publicPath || "/api",
-        });
-        emitProgress(deployId, { step: 2, total: TOTAL, label: "Deploying app via CLI...", status: "active" });
-        emitProgress(deployId, { step: 3, total: TOTAL, label: "Setting environment variables...", status: "active" });
-
-        let configLink: string | null = null;
-        try { configLink = buildConfigLinkForHost(new URL(result.url).hostname, publicPath || "/api", `Deno-${projectName}`); } catch {}
-        db.prepare("UPDATE deployments SET status='active', deploy_url=?, config_json=?, updated_at=datetime('now') WHERE id=?")
-          .run(result.url, JSON.stringify({ projectId: result.projectId, configLink }), deployId);
-        db.prepare("INSERT INTO activity_log (action, detail) VALUES (?, ?)").run("deploy", `Deployed ${projectName} to Deno Deploy: ${result.url}`);
         emitProgress(deployId, { step: TOTAL, total: TOTAL, label: "Deployed successfully!", status: "done", url: result.url, config: configLink ?? undefined });
       } catch (err) {
         db.prepare("UPDATE deployments SET status='failed', config_json=?, updated_at=datetime('now') WHERE id=?")
@@ -501,16 +453,6 @@ router.post(
           publicPath: deploy.public_path,
         });
         url = result.url;
-      } else if (deploy.platform === "deno") {
-        const result = await deployToDeno({
-          apiToken: data.apiToken,
-          orgName: data.orgName,
-          projectName: deploy.project_name,
-          targetDomain: deploy.target_domain,
-          relayPath: deploy.relay_path,
-          publicPath: deploy.public_path,
-        });
-        url = result.url;
       } else if (deploy.platform === "railway") {
         const cfg = deploy.config_json ? JSON.parse(deploy.config_json) : {};
         const result = await deployToRailway(
@@ -591,11 +533,6 @@ router.delete(
         const config = deploy.config_json ? JSON.parse(deploy.config_json) : {};
         if (config.siteId) {
           await deleteNetlifySite(data.token, config.siteId);
-        }
-      } else if (deploy.platform === "deno") {
-        const config = deploy.config_json ? JSON.parse(deploy.config_json) : {};
-        if (config.projectId) {
-          await deleteDenoProject(data.apiToken, config.projectId);
         }
       } else if (deploy.platform === "railway") {
         const config = deploy.config_json ? JSON.parse(deploy.config_json) : {};

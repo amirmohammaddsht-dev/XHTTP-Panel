@@ -44,7 +44,6 @@ const PLATFORM_CDN: Record<string, string> = {
   vercel:  "https://cdn.simpleicons.org/vercel/ffffff",
   netlify: "https://cdn.simpleicons.org/netlify/00C7B7",
   azure:   "https://cdn.simpleicons.org/microsoftazure/ffffff",
-  deno:    "https://cdn.simpleicons.org/deno/ffffff",
   railway: "https://cdn.simpleicons.org/railway/7C3AED",
   fastly:  "https://cdn.simpleicons.org/fastly/FF282D",
 };
@@ -79,12 +78,6 @@ const PLATFORMS = [
     bg: "bg-blue-500/5",
   },
   {
-    id: "deno", label: "Deno",
-    color: "text-indigo-400",
-    glow: "shadow-[0_0_0_2px_rgb(99,102,241),0_0_20px_4px_rgba(99,102,241,0.35)]",
-    bg: "bg-indigo-500/5",
-  },
-  {
     id: "railway", label: "Railway",
     color: "text-violet-400",
     glow: "shadow-[0_0_0_2px_rgb(124,58,237),0_0_20px_4px_rgba(124,58,237,0.35)]",
@@ -99,10 +92,10 @@ const PLATFORMS = [
 ];
 
 const RAILWAY_REGIONS = [
-  { value: "us-west2",        label: "US West",         flag: "🇺🇸" },
-  { value: "us-east4",        label: "US East",         flag: "🇺🇸" },
-  { value: "europe-west4",    label: "EU West",         flag: "🇳🇱" },
-  { value: "asia-southeast1", label: "Southeast Asia",  flag: "🇸🇬" },
+  { value: "us-west2",                label: "US West",         flag: "🇺🇸" },
+  { value: "us-east4-eqdc4a",         label: "US East",         flag: "🇺🇸" },
+  { value: "europe-west4-drams3a",    label: "EU West",         flag: "🇳🇱" },
+  { value: "asia-southeast1-eqsg3a",  label: "Southeast Asia",  flag: "🇸🇬" },
 ] as const;
 
 const AZURE_REGIONS = [
@@ -140,7 +133,7 @@ const DEFAULT_VALUES = {
   projectName: "", targetDomain: "", relayPath: "/api", publicPath: "/api",
   resourceGroup: "", sku: "B2", location: "westeurope",
   targetPort: 443, maxInflight: 256, maxUpBps: 0, maxDownBps: 0,
-  region: "europe-west4", upstreamTimeoutMs: 0,
+  region: "europe-west4-drams3a", upstreamTimeoutMs: 0,
   customDomain: "",
 };
 
@@ -605,7 +598,7 @@ export default function DeployPage() {
                       <FormField control={form.control} name="region" render={({ field }) => (
                         <FormItem className="space-y-1.5">
                           <FormLabel className="text-xs font-medium">{t("deploy.railwayRegion")}</FormLabel>
-                          <Select value={field.value ?? "europe-west4"} onValueChange={field.onChange}>
+                          <Select value={field.value ?? "europe-west4-drams3a"} onValueChange={field.onChange}>
                             <FormControl>
                               <SelectTrigger className="h-9 text-sm">
                                 <SelectValue>

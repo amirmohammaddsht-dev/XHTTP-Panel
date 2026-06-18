@@ -5,7 +5,7 @@
 <h1 align="center">XHTTP Panel</h1>
 
 <p align="center">
-  <strong>یک پنل برای دیپلوی، مدیریت و مانیتورینگ ریلی VLESS+XHTTP روی ۶ پلتفرم ابری</strong>
+  <strong>یک پنل برای دیپلوی، مدیریت و مانیتورینگ ریلی VLESS+XHTTP روی ۵ پلتفرم ابری</strong>
 </p>
 
 <p align="center">
@@ -27,7 +27,6 @@
   <img src="https://img.shields.io/badge/Netlify-supported-00C7B7?logo=netlify&logoColor=white" alt="Netlify" />
   <img src="https://img.shields.io/badge/Azure-supported-0078D4?logo=microsoftazure&logoColor=white" alt="Azure" />
   <img src="https://img.shields.io/badge/Fastly-supported-FF282D?logo=fastly&logoColor=white" alt="Fastly" />
-  <img src="https://img.shields.io/badge/Deno-supported-000?logo=deno" alt="Deno" />
   <img src="https://img.shields.io/badge/Railway-supported-7C3AED?logo=railway&logoColor=white" alt="Railway" />
 </p>
 
@@ -106,14 +105,13 @@ XHTTP Panel یه **داشبورد وب self-hosted** هست که جایگزین 
 
 صفحه‌ای با طراحی کارتی زیبا برای ذخیره و مدیریت اطلاعات دسترسی به هر پلتفرم.
 
-- **کارت‌های گرادیان اختصاصی** — هر پلتفرم رنگ و آیکون مخصوص خودش رو داره (Vercel، Netlify، Azure، Deno، Railway، Fastly)
+- **کارت‌های گرادیان اختصاصی** — هر پلتفرم رنگ و آیکون مخصوص خودش رو داره (Vercel، Netlify، Azure، Railway، Fastly)
 - **رمزنگاری AES-256-GCM** — توکن‌ها هیچوقت به صورت plain ذخیره نمیشن. کلید رمزنگاری خودکار ساخته میشه و مختص همون نصب هست
 - **نمایش masked** — توکن‌ها به صورت `****xxxx` نشون داده میشن، نه کامل
 - **تست اعتبار با یک کلیک** — قبل از دیپلوی مطمئن شو توکنت هنوز valid هست. نتیجه تست (Valid/Invalid) روی همون کارت نمایش داده میشه
 - **فرم داینامیک** — وقتی پلتفرم رو انتخاب می‌کنی، فیلدهای مخصوص همون پلتفرم نمایش داده میشه:
   - Vercel / Netlify: یه فیلد (API Token)
   - Azure: ۴ فیلد (App ID, Password, Tenant ID, Subscription ID)
-  - Deno: ۲ فیلد (API Token, Org Name)
   - Railway / Fastly: یه فیلد (API Token)
 - **چند توکن برای هر پلتفرم** — مثلاً ۳ اکانت مختلف Fastly
 - **حذف با تایید** — Dialog تاییدیه قبل از حذف
@@ -125,7 +123,7 @@ XHTTP Panel یه **داشبورد وب self-hosted** هست که جایگزین 
 قلب پنل. یه ویزارد ۳ مرحله‌ای شیک که ریلی VLESS+XHTTP رو روی ۶ پلتفرم ابری دیپلوی می‌کنه.
 
 #### مرحله ۱ — انتخاب پلتفرم
-- ۶ کارت با آیکون، رنگ و افکت glow اختصاصی
+- ۵ کارت با آیکون، رنگ و افکت glow اختصاصی
 - کارت انتخاب‌شده با حاشیه نورانی مشخص میشه
 
 #### مرحله ۲ — اطلاعات دیپلوی
@@ -157,7 +155,6 @@ XHTTP Panel یه **داشبورد وب self-hosted** هست که جایگزین 
 | **Netlify** | Node.js (Functions) | Netlify CLI | Domain fronting |
 | **Azure** | Node.js (App Service) | Azure REST API | انتخاب SKU و Region، مدیریت Resource Group |
 | **Fastly** | WebAssembly (Compute@Edge) | Fastly CLI | ۱۰۰+ Edge POP جهانی، دامنه سفارشی |
-| **Deno** | TypeScript (Deno Deploy) | deployctl | Edge runtime سریع |
 | **Railway** | Node.js (Container) | Railway CLI | انتخاب ریجن، Docker container |
 
 #### عملیات روی دیپلوی‌های موجود
@@ -216,7 +213,6 @@ XHTTP Panel یه **داشبورد وب self-hosted** هست که جایگزین 
   - Vercel CLI
   - Netlify CLI
   - Azure CLI
-  - Deno / deployctl
   - Railway CLI
   - Fastly CLI
 - **دکمه حذف (Uninstall)** — با Dialog تایید
@@ -329,8 +325,8 @@ XHTTP Panel یه **داشبورد وب self-hosted** هست که جایگزین 
      (panel.db)  (deploy)    (progress)
                     |
     +------+--------+--------+------+------+
-    |      |        |        |      |      |
-  Vercel Netlify  Azure   Fastly  Deno  Railway
+    |      |        |        |      |
+  Vercel Netlify  Azure   Fastly Railway
 ```
 
 ### مدل امنیتی

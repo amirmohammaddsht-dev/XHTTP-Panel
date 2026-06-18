@@ -19,14 +19,14 @@ export const changePasswordSchema = z
 export type ChangePasswordValues = z.infer<typeof changePasswordSchema>;
 
 export const tokenSchema = z.object({
-  platform: z.enum(["vercel", "netlify", "azure", "deno", "railway", "fastly"]),
+  platform: z.enum(["vercel", "netlify", "azure", "railway", "fastly"]),
   label: z.string().min(1, "validation.required"),
   fields: z.record(z.string(), z.string().min(1, "validation.required")),
 });
 export type TokenValues = z.infer<typeof tokenSchema>;
 
 export const deployStep1Schema = z.object({
-  platform: z.enum(["vercel", "netlify", "azure", "deno", "railway", "fastly"]),
+  platform: z.enum(["vercel", "netlify", "azure", "railway", "fastly"]),
 });
 
 export const deployStep2Schema = z.object({
@@ -52,7 +52,7 @@ export const deployStep2Schema = z.object({
   maxInflight: z.number().int().min(1).optional(),
   maxUpBps: z.number().int().min(0).optional(),
   maxDownBps: z.number().int().min(0).optional(),
-  // Railway / Deno
+  // Railway
   region: z.string().optional(),
   upstreamTimeoutMs: z.number().int().min(0).optional(),
   // Fastly

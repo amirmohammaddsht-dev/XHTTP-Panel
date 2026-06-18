@@ -3,7 +3,6 @@ import { getDb } from "../db/init.js";
 import { requireAuth } from "../middleware/auth.js";
 import { encrypt, decrypt } from "../services/crypto.service.js";
 import { asyncHandler } from "../utils/helpers.js";
-import { testDenoToken } from "../services/deno.service.js";
 import { testRailwayToken } from "../services/railway.service.js";
 import { testFastlyToken } from "../services/fastly.service.js";
 
@@ -49,9 +48,9 @@ router.post(
       return;
     }
 
-    const validPlatforms = ["vercel", "netlify", "azure", "deno", "railway", "fastly"];
+    const validPlatforms = ["vercel", "netlify", "azure", "railway", "fastly"];
     if (!validPlatforms.includes(platform)) {
-      res.status(400).json({ error: "Invalid platform. Must be: vercel, netlify, azure, deno, railway, or fastly" });
+      res.status(400).json({ error: "Invalid platform. Must be: vercel, netlify, azure, railway, or fastly" });
       return;
     }
 
@@ -115,6 +114,7 @@ router.delete("/:id", requireAuth, (_req, res) => {
     return;
   }
 
+  db.prepare("UPDATE deployments SET token_id = NULL WHERE token_id = ?").run(Number(id));
   db.prepare("DELETE FROM platform_tokens WHERE id = ?").run(Number(id));
   db.prepare("INSERT INTO activity_log (action, detail) VALUES (?, ?)").run(
     "delete_token",
@@ -167,10 +167,6 @@ router.post(
         } else {
           detail = `HTTP ${resp.status}`;
         }
-      } else if (row.platform === "deno") {
-        const result = await testDenoToken(data.apiToken, data.orgName);
-        valid = result.valid;
-        detail = result.detail;
       } else if (row.platform === "railway") {
         const result = await testRailwayToken(data.apiToken);
         valid = result.valid;

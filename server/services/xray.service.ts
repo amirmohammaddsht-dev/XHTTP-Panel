@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync, copyFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 
 const INSTALLER_ENV = process.env.INSTALLER_ENV_PATH || "/etc/xhttp-installer/info.env";
@@ -70,13 +70,16 @@ export function getConnectionLink(): string | null {
  * Build a config link for a relay host, using CLIENT_LINK as template so all
  * xpadding / alpn / mode / extra params are preserved. Only the host is replaced.
  */
-export function buildConfigLinkForHost(host: string, path: string, label: string): string {
+export function buildConfigLinkForHost(host: string, path: string, label: string, customUuid?: string): string {
   const state = readInstallerState();
-  if (!state.uuid) return "";
+  const uuid = customUuid || state.uuid;
+  if (!uuid) return "";
 
   if (state.clientLink) {
     try {
       let link = state.clientLink;
+      // Replace UUID in vless://UUID@host
+      link = link.replace(/(vless:\/\/)[^@]+(@)/, `$1${uuid}$2`);
       // Replace host in vless://uuid@HOST:PORT
       link = link.replace(/(vless:\/\/[^@]+@)[^:]+(:)/, `$1${host}$2`);
       // Replace sni=
@@ -106,7 +109,7 @@ export function buildConfigLinkForHost(host: string, path: string, label: string
     if (state["SC_MAX_POST_BYTES"]) obj.scMaxEachPostBytes = state["SC_MAX_POST_BYTES"];
     extra = `&extra=${encodeURIComponent(JSON.stringify(obj))}`;
   }
-  return `vless://${state.uuid}@${host}:443?type=xhttp&security=tls&sni=${host}&host=${host}&fp=chrome&alpn=http/1.1,h2&path=${encodeURIComponent(path || "/api")}&mode=auto&allowInsecure=0${extra}#${label}`;
+  return `vless://${uuid}@${host}:443?type=xhttp&security=tls&sni=${host}&host=${host}&fp=chrome&alpn=http/1.1,h2&path=${encodeURIComponent(path || "/api")}&mode=auto&allowInsecure=0${extra}#${label}`;
 }
 
 export interface ServerStatus {
@@ -172,4 +175,122 @@ export function restartXray(): { success: boolean; message: string } {
   } catch (err) {
     return { success: false, message: String(err) };
   }
+}
+
+// ── Inbound CRUD ─────────────────────────────────────────────────────────────
+
+export interface XrayInbound {
+  tag: string;
+  listen: string;
+  port: number;
+  protocol: string;
+  settings: Record<string, any>;
+  streamSettings?: Record<string, any>;
+  sniffing?: Record<string, any>;
+  allocate?: Record<string, any>;
+}
+
+function readFullConfig(): Record<string, any> {
+  if (!existsSync(XRAY_CONFIG)) return { log: {}, inbounds: [], outbounds: [] };
+  try {
+    return JSON.parse(readFileSync(XRAY_CONFIG, "utf-8"));
+  } catch {
+    return { log: {}, inbounds: [], outbounds: [] };
+  }
+}
+
+function writeConfigAndRestart(config: Record<string, any>): { success: boolean; message: string } {
+  // Backup before writing
+  if (existsSync(XRAY_CONFIG)) {
+    copyFileSync(XRAY_CONFIG, XRAY_CONFIG + ".bak");
+  }
+  writeFileSync(XRAY_CONFIG, JSON.stringify(config, null, 2), "utf-8");
+
+  // Validate config with xray test
+  try {
+    execSync(`xray -test -config "${XRAY_CONFIG}" 2>&1`, { encoding: "utf-8", timeout: 10000, cwd: "/root" });
+  } catch (err: any) {
+    // Config invalid — restore backup
+    if (existsSync(XRAY_CONFIG + ".bak")) {
+      copyFileSync(XRAY_CONFIG + ".bak", XRAY_CONFIG);
+    }
+    return { success: false, message: "Invalid config: " + (err.stderr || err.stdout || String(err)).slice(0, 300) };
+  }
+
+  return restartXray();
+}
+
+export function getInbounds(): XrayInbound[] {
+  const config = readFullConfig();
+  return config.inbounds || [];
+}
+
+export function addInbound(inbound: XrayInbound): { success: boolean; message: string } {
+  const config = readFullConfig();
+  if (!config.inbounds) config.inbounds = [];
+
+  // Check tag uniqueness
+  if (config.inbounds.some((ib: any) => ib.tag === inbound.tag)) {
+    return { success: false, message: `Inbound with tag "${inbound.tag}" already exists` };
+  }
+  // Check port conflict (same listen+port)
+  if (config.inbounds.some((ib: any) => ib.port === inbound.port && ib.listen === inbound.listen)) {
+    return { success: false, message: `Port ${inbound.port} is already in use` };
+  }
+
+  config.inbounds.push(inbound);
+  return writeConfigAndRestart(config);
+}
+
+export function updateInbound(tag: string, data: Partial<XrayInbound>): { success: boolean; message: string } {
+  const config = readFullConfig();
+  const idx = (config.inbounds || []).findIndex((ib: any) => ib.tag === tag);
+  if (idx === -1) return { success: false, message: `Inbound "${tag}" not found` };
+
+  // Merge — keep tag unchanged
+  const existing = config.inbounds[idx];
+  config.inbounds[idx] = { ...existing, ...data, tag };
+
+  return writeConfigAndRestart(config);
+}
+
+export function deleteInbound(tag: string): { success: boolean; message: string } {
+  const config = readFullConfig();
+  const before = (config.inbounds || []).length;
+  config.inbounds = (config.inbounds || []).filter((ib: any) => ib.tag !== tag);
+  if (config.inbounds.length === before) return { success: false, message: `Inbound "${tag}" not found` };
+
+  return writeConfigAndRestart(config);
+}
+
+export function addClient(tag: string, client: { id: string; flow?: string; email?: string }): { success: boolean; message: string } {
+  const config = readFullConfig();
+  const inbound = (config.inbounds || []).find((ib: any) => ib.tag === tag);
+  if (!inbound) return { success: false, message: `Inbound "${tag}" not found` };
+
+  if (!inbound.settings) inbound.settings = {};
+  if (!inbound.settings.clients) inbound.settings.clients = [];
+
+  // Check UUID uniqueness within inbound
+  if (inbound.settings.clients.some((c: any) => c.id === client.id)) {
+    return { success: false, message: `Client with UUID "${client.id}" already exists in this inbound` };
+  }
+
+  inbound.settings.clients.push({ id: client.id, flow: client.flow || "", email: client.email || "" });
+  return writeConfigAndRestart(config);
+}
+
+export function removeClient(tag: string, uuid: string): { success: boolean; message: string } {
+  const config = readFullConfig();
+  const inbound = (config.inbounds || []).find((ib: any) => ib.tag === tag);
+  if (!inbound) return { success: false, message: `Inbound "${tag}" not found` };
+
+  const clients = inbound.settings?.clients || [];
+  const before = clients.length;
+  inbound.settings.clients = clients.filter((c: any) => c.id !== uuid);
+  if (inbound.settings.clients.length === before) {
+    return { success: false, message: `Client "${uuid}" not found` };
+  }
+
+  return writeConfigAndRestart(config);
 }

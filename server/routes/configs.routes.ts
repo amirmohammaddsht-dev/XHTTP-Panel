@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { existsSync } from "node:fs";
 import { requireAuth } from "../middleware/auth.js";
 import {
   readXrayConfig,
@@ -111,6 +112,40 @@ router.get("/check-relay", requireAuth, async (req, res) => {
   } catch (err) {
     res.json({ ok: false, status: 0, ms: Date.now() - start, error: String(err) });
   }
+});
+
+// ── GET /ssl-paths — auto-detect SSL cert paths ─────────────────────────────
+router.get("/ssl-paths", requireAuth, (_req, res) => {
+  const state = readInstallerState();
+  const domain = state.domain || "";
+
+  // Also check Xray config for existing cert paths
+  const xrayConfig = readXrayConfig() as Record<string, any> | null;
+  if (xrayConfig) {
+    for (const ib of xrayConfig.inbounds || []) {
+      const certs = ib.streamSettings?.tlsSettings?.certificates;
+      if (certs?.[0]?.certificateFile && certs?.[0]?.keyFile) {
+        res.json({ domain, certFile: certs[0].certificateFile, keyFile: certs[0].keyFile });
+        return;
+      }
+    }
+  }
+
+  // Fallback: guess from common paths
+  const candidates = [
+    { cert: `/etc/ssl/xhttp/${domain}/fullchain.pem`, key: `/etc/ssl/xhttp/${domain}/privkey.pem` },
+    { cert: `/root/.acme.sh/${domain}_ecc/fullchain.cer`, key: `/root/.acme.sh/${domain}_ecc/${domain}.key` },
+    { cert: `/etc/letsencrypt/live/${domain}/fullchain.pem`, key: `/etc/letsencrypt/live/${domain}/privkey.pem` },
+  ];
+
+  for (const c of candidates) {
+    if (existsSync(c.cert) && existsSync(c.key)) {
+      res.json({ domain, certFile: c.cert, keyFile: c.key });
+      return;
+    }
+  }
+
+  res.json({ domain, certFile: "", keyFile: "" });
 });
 
 export default router;

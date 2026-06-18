@@ -1,11 +1,11 @@
 {
   "name": "xhttp-panel",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "type": "module",
   "private": true,
   "scripts": {
     "dev": "tsx watch server/index.ts",
-    "build": "tsc && cp -r server/resources dist/server/ && mkdir -p dist/frontend && cp -r frontend/out dist/frontend/ && cp -r ../deploy dist/deploy",
+    "build": "tsc && cp -r server/resources dist/server/ && cp server/db/schema.sql dist/server/db/schema.sql && mkdir -p dist/frontend && cp -r frontend/out dist/frontend/ && ([ -d ../deploy ] && cp -r ../deploy dist/deploy || true)",
     "start": "node dist/server/index.js"
   },
   "dependencies": {

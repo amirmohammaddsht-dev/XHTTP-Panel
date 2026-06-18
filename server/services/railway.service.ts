@@ -2,63 +2,13 @@ import { readFileSync, mkdtempSync, writeFileSync, rmSync, mkdirSync } from "nod
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
-import { execFileSync, execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const RAILWAY_GQL = "https://backboard.railway.app/graphql/v2";
+const RAILWAY_HOST = "railway.app";
 
-// ── CLI helpers ───────────────────────────────────────────────────────────────
-
-function findRailwayBin(): string | null {
-  const candidates = [
-    "/usr/local/bin/railway",
-    "/usr/bin/railway",
-    "/root/.npm-global/bin/railway",
-  ];
-  for (const p of candidates) {
-    try { execFileSync(p, ["--version"], { timeout: 5000 }); return p; } catch {}
-  }
-  try {
-    const w = execSync("which railway 2>/dev/null", { timeout: 5000, encoding: "utf8" }).trim();
-    if (w) return w;
-  } catch {}
-  try {
-    const prefix = execSync("npm config get prefix 2>/dev/null", { timeout: 5000, encoding: "utf8" }).trim();
-    if (prefix) {
-      const p = `${prefix}/bin/railway`;
-      execFileSync(p, ["--version"], { timeout: 5000 });
-      return p;
-    }
-  } catch {}
-  return null;
-}
-
-function runRailway(args: string[], cwd: string, token: string): string {
-  const bin = findRailwayBin();
-  if (!bin) {
-    throw new Error(
-      "Railway CLI not installed. Go to Initial Setup → Phase 2 → Railway CLI → Install."
-    );
-  }
-  try {
-    return execFileSync(bin, args, {
-      cwd,
-      encoding: "utf8",
-      timeout: 120_000,
-      env: {
-        ...process.env,
-        RAILWAY_API_TOKEN: token,
-        NO_COLOR: "1",
-        CI: "1",
-      },
-    });
-  } catch (err: any) {
-    const msg = (err.stderr || err.stdout || err.message || String(err)).trim();
-    throw new Error(msg);
-  }
-}
-
-// ── GraphQL helper ───────────────────────────────────────────────────────────
+// ── GraphQL helper ────────────────────────────────────────────────────────────
 
 async function gql<T>(
   token: string,
@@ -103,6 +53,15 @@ export interface RailwayDeployParams {
 export type RailwayProgressFn = (step: number, total: number, label: string) => void;
 export const RAILWAY_DEPLOY_STEPS = 7;
 
+// ── Build archive ─────────────────────────────────────────────────────────────
+
+function buildTarGz(dir: string): Buffer {
+  return execFileSync("tar", ["-czf", "-", "-C", dir, "."], {
+    timeout: 30_000,
+    maxBuffer: 50 * 1024 * 1024,
+  }) as unknown as Buffer;
+}
+
 // ── deploy ────────────────────────────────────────────────────────────────────
 
 export async function deployToRailway(
@@ -115,40 +74,42 @@ export async function deployToRailway(
   const tmpDir = mkdtempSync(resolve(tmpdir(), "railway-deploy-"));
 
   try {
-    // ── Step 1: Prepare files ────────────────────────────────────────────────
+    // ── Step 1: Prepare source files ─────────────────────────────────────────
     emit(1, "Preparing source files...");
     const srcDir = resolve(__dirname, "../resources/railway");
     mkdirSync(resolve(tmpDir, "src"), { recursive: true });
 
-    writeFileSync(
-      resolve(tmpDir, "src/index.js"),
-      readFileSync(resolve(srcDir, "src/index.js"), "utf8"),
-      "utf8"
-    );
-    writeFileSync(
-      resolve(tmpDir, "package.json"),
-      readFileSync(resolve(srcDir, "package.json"), "utf8"),
-      "utf8"
-    );
+    writeFileSync(resolve(tmpDir, "src/index.js"), readFileSync(resolve(srcDir, "src/index.js"), "utf8"), "utf8");
+    writeFileSync(resolve(tmpDir, "package.json"),  readFileSync(resolve(srcDir, "package.json"),  "utf8"), "utf8");
 
-    // NOTE: `region` is NOT supported in railway.json (only multiRegionConfig is).
-    // Region must be set via GraphQL serviceInstanceUpdate AFTER deploy.
-    // See: https://docs.railway.com/guides/manage-services
+    const deploySection: Record<string, unknown> = {
+      startCommand: "node src/index.js",
+      restartPolicyType: "ON_FAILURE",
+      restartPolicyMaxRetries: 10,
+    };
+    if (params.region) deploySection.region = params.region;
+
     const railwayCfg: Record<string, unknown> = {
       $schema: "https://schema.railway.app/railway.schema.json",
       build: { builder: "NIXPACKS" },
-      deploy: {
-        startCommand: "node src/index.js",
-        restartPolicyType: "ON_FAILURE",
-        restartPolicyMaxRetries: 10,
-      },
+      deploy: deploySection,
     };
     writeFileSync(resolve(tmpDir, "railway.json"), JSON.stringify(railwayCfg, null, 2), "utf8");
 
-    // ── Step 2: Create project ───────────────────────────────────────────────
+    // ── Step 2: Create / link project ────────────────────────────────────────
     emit(2, "Creating Railway project...");
 
-    if (!existingProjectId) {
+    const meData = await gql<{ me: { workspaces: Array<{ id: string }> } }>(
+      params.apiToken,
+      `{ me { workspaces { id } } }`
+    );
+    const workspaceId = meData.me?.workspaces?.[0]?.id;
+
+    let projectId: string;
+
+    if (existingProjectId && isUUID(existingProjectId)) {
+      projectId = existingProjectId;
+    } else {
       try {
         const listData = await gql<{
           projects: { edges: Array<{ node: { id: string; name: string } }> };
@@ -161,131 +122,217 @@ export async function deployToRailway(
       } catch (err: any) {
         if (err.message.includes("free plan") || err.message.includes("Delete an existing")) throw err;
       }
+
+      const createInput: Record<string, unknown> = { name: params.projectName };
+      if (workspaceId) createInput.workspaceId = workspaceId;
+
+      const projData = await gql<{ projectCreate: { id: string } }>(
+        params.apiToken,
+        `mutation($input: ProjectCreateInput!) { projectCreate(input: $input) { id } }`,
+        { input: createInput }
+      );
+      projectId = projData.projectCreate.id;
     }
 
-    if (existingProjectId && isUUID(existingProjectId)) {
-      runRailway(["link", existingProjectId], tmpDir, params.apiToken);
-    } else {
-      try {
-        // Railway CLI reads workspace from token context — no --workspace flag needed
-        runRailway(["init", "--name", params.projectName], tmpDir, params.apiToken);
-      } catch (err: any) {
-        if (err.message.includes("Free plan") || err.message.includes("provision limit")) {
-          throw new Error(
-            "Railway free plan limit reached. Delete existing projects from railway.app dashboard or upgrade your plan."
-          );
-        }
-        throw err;
-      }
+    // ── Step 3: Create service ────────────────────────────────────────────────
+    emit(3, "Creating service...");
+    let serviceId: string;
+    try {
+      const svcData = await gql<{ serviceCreate: { id: string } }>(
+        params.apiToken,
+        `mutation($input: ServiceCreateInput!) { serviceCreate(input: $input) { id } }`,
+        { input: { projectId, name: "relay" } }
+      );
+      serviceId = svcData.serviceCreate.id;
+    } catch {
+      const projData = await gql<{
+        project: { services: { edges: Array<{ node: { id: string } }> } };
+      }>(
+        params.apiToken,
+        `query($id: String!) { project(id: $id) { services { edges { node { id } } } } }`,
+        { id: projectId }
+      );
+      const existing = projData.project?.services?.edges?.[0]?.node?.id;
+      if (!existing) throw new Error("Could not create or find service");
+      serviceId = existing;
     }
 
-    // ── Step 3: Upload & deploy code ─────────────────────────────────────────
-    emit(3, "Uploading & building code (1-2 min)...");
-    runRailway(["up", "--detach"], tmpDir, params.apiToken);
+    // ── Step 4: Get environment ID ────────────────────────────────────────────
+    const envData = await gql<{
+      project: { environments: { edges: Array<{ node: { id: string; name: string } }> } };
+    }>(
+      params.apiToken,
+      `query($id: String!) { project(id: $id) { environments { edges { node { id name } } } } }`,
+      { id: projectId }
+    );
+    const envEdge =
+      envData.project?.environments?.edges?.find((e) => e.node.name === "production") ??
+      envData.project?.environments?.edges?.[0];
+    if (!envEdge) throw new Error("No environment found for project");
+    const environmentId = envEdge.node.id;
 
-    // ── Step 3b: Set region via GraphQL (railway.json does NOT support region) ─
-    // Must be done after `railway up` so the service + environment IDs exist.
-    if (params.region) {
-      try {
-        // Get project ID from the local .railway/config.toml written by CLI
-        let gqlProjectId = "";
-        try {
-          const cfgRaw = readFileSync(resolve(tmpDir, ".railway", "config.toml"), "utf8");
-          const m = cfgRaw.match(/project\s*=\s*"([0-9a-f-]{36})"/i);
-          if (m) gqlProjectId = m[1];
-        } catch {}
+    // ── Step 5: Set variables BEFORE upload (skipDeploys: true) ────────────────
+    // Region is already embedded in railway.json inside the archive.
+    const targetUrl = params.targetDomain.includes("://")
+      ? params.targetDomain.replace(/\/$/, "")
+      : `https://${params.targetDomain}:${params.targetPort || 443}`;
 
-        if (gqlProjectId) {
-          // Fetch serviceId and environmentId for this project
-          const projData = await gql<{
-            project: {
-              services: { edges: Array<{ node: { id: string } }> };
-              environments: { edges: Array<{ node: { id: string; name: string } }> };
-            };
-          }>(
-            params.apiToken,
-            `query ($id: String!) {
-              project(id: $id) {
-                services { edges { node { id } } }
-                environments { edges { node { id name } } }
-              }
-            }`,
-            { id: gqlProjectId }
-          );
+    emit(5, `Setting environment variables (TARGET=${targetUrl})...`);
 
-          const serviceId = projData.project?.services?.edges?.[0]?.node?.id;
-          const envEdge = projData.project?.environments?.edges?.find(
-            (e) => e.node.name === "production"
-          ) ?? projData.project?.environments?.edges?.[0];
-          const environmentId = envEdge?.node?.id;
-
-          if (serviceId && environmentId) {
-            await gql(
-              params.apiToken,
-              `mutation ($serviceId: String!, $environmentId: String!, $input: ServiceInstanceUpdateInput!) {
-                serviceInstanceUpdate(serviceId: $serviceId, environmentId: $environmentId, input: $input)
-              }`,
-              { serviceId, environmentId, input: { region: params.region } }
-            );
-            emit(3, `Region set to ${params.region} — redeploying...`);
-            // Trigger a new deployment so the region change takes effect
-            runRailway(["up", "--detach"], tmpDir, params.apiToken);
-          }
-        }
-      } catch (regionErr: any) {
-        // Non-fatal — deployment still works, just in default region
-        console.warn("[Railway] Could not set region via GraphQL:", regionErr.message);
-      }
-    }
-
-    // ── Step 4: Set environment variables ────────────────────────────────────
-    const targetUrl = `https://${params.targetDomain.includes(":") ? params.targetDomain : params.targetDomain + ":" + (params.targetPort || 443)}`;
-    emit(4, `Setting environment variables (TARGET=${targetUrl})...`);
-    const setArgs: string[] = ["variables"];
-    const kvPairs: string[] = [
-      `TARGET_DOMAIN=${targetUrl}`,
-      `RELAY_PATH=${params.relayPath}`,
-      `PUBLIC_RELAY_PATH=${params.publicPath}`,
-    ];
+    const variables: Record<string, string> = {
+      TARGET_DOMAIN: targetUrl,
+      RELAY_PATH: params.relayPath,
+      PUBLIC_RELAY_PATH: params.publicPath,
+    };
     if (params.maxInflight !== undefined && params.maxInflight > 0) {
-      kvPairs.push(`MAX_INFLIGHT=${params.maxInflight}`);
+      variables.MAX_INFLIGHT = String(params.maxInflight);
     }
     if (params.upstreamTimeoutMs !== undefined) {
-      kvPairs.push(`UPSTREAM_TIMEOUT_MS=${params.upstreamTimeoutMs}`);
+      variables.UPSTREAM_TIMEOUT_MS = String(params.upstreamTimeoutMs);
     }
-    for (const kv of kvPairs) setArgs.push("--set", kv);
-    runRailway(setArgs, tmpDir, params.apiToken);
 
-    // ── Step 5: Generate domain ──────────────────────────────────────────────
-    emit(5, "Generating public domain...");
+    await gql(
+      params.apiToken,
+      `mutation($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }`,
+      { input: { projectId, environmentId, serviceId, variables, skipDeploys: true } }
+    );
+
+    // ── Step 6: Upload source code → single deployment with all vars set ──────
+    emit(6, "Uploading & building code (1-2 min)...");
+
+    const archive = buildTarGz(tmpDir);
+    const uploadUrl = `https://backboard.${RAILWAY_HOST}/project/${projectId}/environment/${environmentId}/up?serviceId=${serviceId}`;
+    const uploadResp = await fetch(uploadUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${params.apiToken}`,
+        "Content-Type": "application/gzip",
+      },
+      body: archive as unknown as BodyInit,
+    });
+
+    if (!uploadResp.ok) {
+      const body = await uploadResp.text().catch(() => "");
+      throw new Error(`Railway upload failed (${uploadResp.status}): ${body}`);
+    }
+
+    // ── Step 7: Generate public domain ───────────────────────────────────────
+    emit(7, "Generating public domain...");
 
     let url = "";
     try {
-      const domainOut = runRailway(["domain"], tmpDir, params.apiToken);
-      const m = domainOut.match(/[\w-]+\.up\.railway\.app/);
-      if (m) url = `https://${m[0]}`;
-    } catch {}
-    if (!url) url = `https://${params.projectName}.up.railway.app`;
-
-    // ── Step 6: Capture project ID ───────────────────────────────────────────
-    emit(7, `Railway service live: ${url}`);
-    let projectId: string = params.projectName;
-    try {
-      const cfgContent = readFileSync(resolve(tmpDir, ".railway", "config.toml"), "utf8");
-      const m = cfgContent.match(/project\s*=\s*"([0-9a-f-]{36})"/i);
-      if (m) projectId = m[1];
-    } catch {}
-    if (!isUUID(projectId)) {
+      const domainData = await gql<{ serviceDomainCreate: { domain: string } }>(
+        params.apiToken,
+        `mutation($input: ServiceDomainCreateInput!) { serviceDomainCreate(input: $input) { id domain } }`,
+        { input: { environmentId, serviceId } }
+      );
+      if (domainData.serviceDomainCreate?.domain) {
+        url = `https://${domainData.serviceDomainCreate.domain}`;
+      }
+    } catch {
+      // Domain may already exist — query it
       try {
-        const data = await gql<{
-          projects: { edges: Array<{ node: { id: string; name: string } }> };
-        }>(params.apiToken, `{ projects { edges { node { id name } } } }`);
-        const found = data.projects?.edges?.find((e) => e.node.name === params.projectName);
-        if (found) projectId = found.node.id;
+        const svcData = await gql<{
+          project: {
+            services: {
+              edges: Array<{
+                node: { domains: { serviceDomains: Array<{ domain: string }> } };
+              }>;
+            };
+          };
+        }>(
+          params.apiToken,
+          `query($id: String!) {
+            project(id: $id) {
+              services { edges { node { domains { serviceDomains { domain } } } } }
+            }
+          }`,
+          { id: projectId }
+        );
+        const d =
+          svcData.project?.services?.edges?.[0]?.node?.domains?.serviceDomains?.[0]?.domain;
+        if (d) url = `https://${d}`;
       } catch {}
     }
 
+    if (!url) url = `https://${params.projectName}.up.railway.app`;
+
+    emit(7, `Railway service live: ${url}`);
     return { url, projectId };
+
+  } finally {
+    try { rmSync(tmpDir, { recursive: true }); } catch {}
+  }
+}
+
+// ── change region ────────────────────────────────────────────────────────────
+// Re-uploads the relay code with a new railway.json containing the chosen region.
+// This triggers a redeploy in the new region without changing any other settings.
+
+export async function changeRailwayRegion(
+  apiToken: string,
+  projectId: string,
+  newRegion: string
+): Promise<void> {
+  // Get service + env from existing project
+  const projData = await gql<{
+    project: {
+      services: { edges: Array<{ node: { id: string } }> };
+      environments: { edges: Array<{ node: { id: string; name: string } }> };
+    };
+  }>(
+    apiToken,
+    `query($id: String!) {
+      project(id: $id) {
+        services { edges { node { id } } }
+        environments { edges { node { id name } } }
+      }
+    }`,
+    { id: projectId }
+  );
+
+  const serviceId = projData.project?.services?.edges?.[0]?.node?.id;
+  if (!serviceId) throw new Error("No service found in project");
+
+  const envEdge =
+    projData.project?.environments?.edges?.find((e) => e.node.name === "production") ??
+    projData.project?.environments?.edges?.[0];
+  if (!envEdge) throw new Error("No environment found in project");
+  const environmentId = envEdge.node.id;
+
+  // Build minimal archive with new region in railway.json
+  const tmpDir = mkdtempSync(resolve(tmpdir(), "railway-region-"));
+  try {
+    const srcDir = resolve(__dirname, "../resources/railway");
+    mkdirSync(resolve(tmpDir, "src"), { recursive: true });
+    writeFileSync(resolve(tmpDir, "src/index.js"), readFileSync(resolve(srcDir, "src/index.js"), "utf8"), "utf8");
+    writeFileSync(resolve(tmpDir, "package.json"),  readFileSync(resolve(srcDir, "package.json"),  "utf8"), "utf8");
+    writeFileSync(
+      resolve(tmpDir, "railway.json"),
+      JSON.stringify({
+        $schema: "https://schema.railway.app/railway.schema.json",
+        build: { builder: "NIXPACKS" },
+        deploy: {
+          startCommand: "node src/index.js",
+          restartPolicyType: "ON_FAILURE",
+          restartPolicyMaxRetries: 10,
+          region: newRegion,
+        },
+      }, null, 2),
+      "utf8"
+    );
+
+    const archive = buildTarGz(tmpDir);
+    const uploadUrl = `https://backboard.${RAILWAY_HOST}/project/${projectId}/environment/${environmentId}/up?serviceId=${serviceId}`;
+    const resp = await fetch(uploadUrl, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "application/gzip" },
+      body: archive as unknown as BodyInit,
+    });
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => "");
+      throw new Error(`Region redeploy failed (${resp.status}): ${body}`);
+    }
   } finally {
     try { rmSync(tmpDir, { recursive: true }); } catch {}
   }

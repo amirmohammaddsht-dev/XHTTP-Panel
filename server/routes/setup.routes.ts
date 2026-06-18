@@ -52,11 +52,6 @@ router.get("/status", requireAuth, (_req, res) => {
   const xrayBin = XRAY_BIN_PATHS.find((p) => existsSync(p)) || null;
   const xrayInstalled = !!xrayBin || cmdExists("xray");
   const xrayVersionRaw = xrayBin ? run(`${xrayBin} version 2>/dev/null | head -1`).output : run("xray version 2>/dev/null | head -1").output;
-  const denoInstalled =
-    existsSync("/root/.deno/bin/deno") ||
-    existsSync("/usr/local/bin/deno") ||
-    cmdExists("deno");
-
   const railwayInstalled = cmdExists("railway");
   const fastlyInstalled = cmdExists("fastly");
 
@@ -67,7 +62,6 @@ router.get("/status", requireAuth, (_req, res) => {
     vercelInstalled: cmdExists("vercel"),
     netlifyInstalled: cmdExists("netlify"),
     azureInstalled: cmdExists("az"),
-    denoInstalled,
     railwayInstalled,
     fastlyInstalled,
     completed: xrayInstalled && (existsSync("/root/.acme.sh/acme.sh") || cmdExists("acme.sh")),
@@ -283,7 +277,6 @@ router.post("/phase2/uninstall", requireAuth, (req, res) => {
     vercel: "npm uninstall -g vercel 2>&1",
     netlify: "npm uninstall -g netlify-cli 2>&1",
     azure: "apt-get remove -y azure-cli 2>&1 || npm uninstall -g azure-cli 2>&1",
-    deno: "rm -rf /root/.deno /usr/local/bin/deno 2>&1 && echo 'Deno removed'",
     railway: "npm uninstall -g @railway/cli 2>&1 && echo 'Railway CLI removed'",
     fastly: "rm -f /usr/local/bin/fastly 2>&1 && echo 'Fastly CLI removed'",
   };
@@ -308,7 +301,6 @@ router.post("/phase2/install-cli", requireAuth, (req, res) => {
     vercel: "npm install -g vercel 2>&1",
     netlify: "npm install -g netlify-cli 2>&1",
     azure: "curl -sL https://aka.ms/InstallAzureCLIDeb | bash 2>&1",
-    deno: "curl -fsSL https://deno.land/install.sh | sh 2>&1 && echo 'Deno installed to /root/.deno/bin/deno'",
     railway: "npm install -g @railway/cli 2>&1 && echo 'Railway CLI installed'",
     fastly: "FASTLY_VER=$(curl -s https://api.github.com/repos/fastly/cli/releases/latest | grep -oP 'tag_name.*?v\\K[0-9][^\"]*' | head -1) && curl -fsSL https://github.com/fastly/cli/releases/download/v${FASTLY_VER}/fastly_v${FASTLY_VER}_linux-amd64.tar.gz -o /tmp/fastly.tar.gz && tar -xzf /tmp/fastly.tar.gz -C /usr/local/bin fastly && chmod +x /usr/local/bin/fastly && echo Fastly CLI installed",
   };

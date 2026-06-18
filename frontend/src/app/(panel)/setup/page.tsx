@@ -26,7 +26,7 @@ interface Phase1 {
 interface Phase2 {
   xrayInstalled: boolean; xrayVersion: string | null; acmeInstalled: boolean;
   vercelInstalled: boolean; netlifyInstalled: boolean; azureInstalled: boolean;
-  denoInstalled: boolean; railwayInstalled: boolean; fastlyInstalled: boolean; completed: boolean;
+  railwayInstalled: boolean; fastlyInstalled: boolean; completed: boolean;
 }
 interface Phase3 {
   domain: string | null; certPath: string | null; certExists: boolean;
@@ -282,12 +282,6 @@ export default function SetupPage() {
           onInstall={() => runAction("azure-i", "/setup/phase2/install-cli", { tool: "azure" })}
           onUninstall={() => runAction("azure-u", "/setup/phase2/uninstall", { tool: "azure" })}
           actionLoading={actionLoading === "azure-i" || actionLoading === "azure-u"} t={t}
-        />
-        <ToolRow
-          label={t("setup.denoCli")} installed={status.phase2.denoInstalled}
-          onInstall={() => runAction("deno-i", "/setup/phase2/install-cli", { tool: "deno" })}
-          onUninstall={() => runAction("deno-u", "/setup/phase2/uninstall", { tool: "deno" })}
-          actionLoading={actionLoading === "deno-i" || actionLoading === "deno-u"} t={t}
         />
         <ToolRow
           label={t("setup.railwayCli")} installed={status.phase2.railwayInstalled}

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Key, Rocket, Settings, FileCode, LogOut, Zap, Wrench, Activity } from "lucide-react";
+import { LayoutDashboard, Key, Rocket, Settings, FileCode, LogOut, Zap, Wrench, Activity, Network, Users, Info } from "lucide-react";
 import { useAuth } from "@/lib/store";
 import { useI18n } from "@/lib/i18n";
 import {
@@ -21,10 +21,13 @@ const navItems = [
   { href: "/dashboard", labelKey: "sidebar.dashboard", icon: LayoutDashboard },
   { href: "/setup", labelKey: "sidebar.setup", icon: Wrench },
   { href: "/tokens", labelKey: "sidebar.tokens", icon: Key },
+  { href: "/clients", labelKey: "sidebar.clients", icon: Users },
+  { href: "/inbounds", labelKey: "sidebar.inbounds", icon: Network },
   { href: "/deploy", labelKey: "sidebar.deploy", icon: Rocket },
   { href: "/configs", labelKey: "sidebar.configs", icon: FileCode },
   { href: "/resources", labelKey: "sidebar.resources", icon: Activity },
   { href: "/settings", labelKey: "sidebar.settings", icon: Settings },
+  { href: "/about",    labelKey: "sidebar.about",    icon: Info },
 ];
 
 export function AppSidebar() {

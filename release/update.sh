@@ -27,18 +27,24 @@ echo -e "${W}      XHTTP Panel — Update            ${N}"
 echo -e "${W}══════════════════════════════════════${N}"
 echo ""
 
-# 1. Backup data
+# 1. Stop panel so SQLite is in a clean state before backup
+info "Stopping panel..."
+pm2 stop "$PM2_APP_NAME" 2>/dev/null || true
+ok "Panel stopped"
+
+# 2. Backup data
 info "Backing up data..."
+rm -rf /tmp/xhttp-panel-data-backup
 [[ -d "$INSTALL_DIR/dist/data" ]] && cp -r "$INSTALL_DIR/dist/data" /tmp/xhttp-panel-data-backup 2>/dev/null || true
 ok "Data backed up"
 
-# 2. Extract new files
+# 3. Extract new files (only dist/, preserve everything else)
 info "Extracting new files..."
 rm -rf "$INSTALL_DIR/dist"
 tar -xzf "$TARBALL" -C "$INSTALL_DIR"
 ok "Files updated"
 
-# 3. Restore data
+# 4. Restore data
 if [[ -d /tmp/xhttp-panel-data-backup ]]; then
   mkdir -p "$INSTALL_DIR/dist/data"
   cp -r /tmp/xhttp-panel-data-backup/. "$INSTALL_DIR/dist/data/"
@@ -46,18 +52,17 @@ if [[ -d /tmp/xhttp-panel-data-backup ]]; then
   ok "Data restored"
 fi
 
-# 4. npm install (in case dependencies changed)
+# 5. npm install (in case dependencies changed)
 info "Checking dependencies..."
 cd "$INSTALL_DIR"
 npm install --omit=dev --silent 2>/dev/null
 ok "Dependencies OK"
 
-# 5. Update CLI
-cp "$INSTALL_DIR/xhttp-info.sh" "$CLI_PATH"
-chmod +x "$CLI_PATH"
-ok "CLI updated"
+# 6. Update CLI
+cp "$INSTALL_DIR/xhttp-info.sh" "$CLI_PATH" 2>/dev/null || true
+chmod +x "$CLI_PATH" 2>/dev/null || true
 
-# 6. Restart
+# 7. Restart
 pm2 restart "$PM2_APP_NAME" --update-env >/dev/null
 ok "Panel restarted"
 

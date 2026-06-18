@@ -33,6 +33,7 @@ interface DeployLink {
   projectName: string;
   url: string;
   configLink: string;
+  publicPath?: string;
 }
 
 interface AllLinks {
@@ -50,13 +51,6 @@ function LinkCard({ label, sublabel, link, platform, checkUrl, checkPath, deploy
   const [deleting, setDeleting] = useState(false);
   const [checkResult, setCheckResult] = useState<{ ok: boolean; status: number; ms: number } | null>(null);
   const { t } = useI18n();
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(link);
-    setCopied(true);
-    toast.success(t("configs.copied"));
-    setTimeout(() => setCopied(false), 2000);
-  };
 
   const handleDelete = async () => {
     if (!deployId) return;
@@ -106,11 +100,23 @@ function LinkCard({ label, sublabel, link, platform, checkUrl, checkPath, deploy
           )}
         </div>
       </div>
-      <div className="rounded bg-muted p-2">
-        <code className="text-[10px] break-all" dir="ltr">{link}</code>
-      </div>
+      <textarea
+        id={`config-link-${label}`}
+        readOnly
+        value={link}
+        dir="ltr"
+        className="w-full rounded bg-muted p-2 text-[10px] font-mono break-all resize-none border-0 focus:ring-1 focus:ring-primary"
+        rows={3}
+        onFocus={(e) => e.target.select()}
+      />
       <div className="flex gap-1.5">
-        <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={handleCopy}>
+        <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={() => {
+          const el = document.getElementById(`config-link-${label}`) as HTMLTextAreaElement;
+          if (el) { el.focus(); el.select(); document.execCommand("copy"); }
+          setCopied(true);
+          toast.success(t("configs.copied"));
+          setTimeout(() => setCopied(false), 2000);
+        }}>
           {copied ? <><Check className="h-3 w-3" /> {t("configs.copied")}</> : <><Copy className="h-3 w-3" /> {t("configs.copyLink")}</>}
         </Button>
         {checkUrl && (

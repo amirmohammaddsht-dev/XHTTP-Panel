@@ -96,6 +96,8 @@ cp "$TARBALL_PATH" "/tmp/$TARBALL"
 
 if [[ -d "$INSTALL_DIR" ]]; then
   warn "Existing install found — backing up data directory..."
+  # Stop panel first so SQLite WAL is flushed before backup
+  pm2 stop xhttp-panel 2>/dev/null || true
   rm -rf /tmp/xhttp-panel-data-backup
   for d in "$INSTALL_DIR/dist/data" "$INSTALL_DIR/data"; do
     if [[ -d "$d" ]]; then

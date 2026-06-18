@@ -17,6 +17,9 @@ import deployRoutes from "./routes/deploy.routes.js";
 import configsRoutes from "./routes/configs.routes.js";
 import settingsRoutes from "./routes/settings.routes.js";
 import setupRoutes from "./routes/setup.routes.js";
+import inboundsRoutes from "./routes/inbounds.routes.js";
+import clientsRoutes from "./routes/clients.routes.js";
+import { syncTrafficFromXray, checkAndDisableExpired } from "./services/client.service.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
@@ -154,6 +157,8 @@ app.use("/api/v1/deploy",    deployRoutes);
 app.use("/api/v1/configs",   configsRoutes);
 app.use("/api/v1/settings",  settingsRoutes);
 app.use("/api/v1/setup",     setupRoutes);
+app.use("/api/v1/inbounds",  inboundsRoutes);
+app.use("/api/v1/clients",   clientsRoutes);
 
 // ── Static assets — always public ─────────────────────────────────────────────
 // Only serve JS/CSS bundles and favicon without cookie.
@@ -222,5 +227,15 @@ const server = app.listen(PORT, () => {
   console.log(`Panel path: /${WEB_PATH}  (run 'xhttp-info' to manage)`);
 });
 
-process.on("SIGTERM", () => { console.log("Shutting down..."); server.close(); closeDb(); });
-process.on("SIGINT",  () => { console.log("Shutting down..."); server.close(); closeDb(); });
+// ── Background jobs ──────────────────────────────────────────────────────────
+// Sync traffic from Xray stats every 30 seconds (lightweight, no routing overhead)
+const trafficSyncInterval = setInterval(() => {
+  try { syncTrafficFromXray(); } catch {}
+}, 30_000);
+// Check expired clients every 60 seconds
+const expirySyncInterval = setInterval(() => {
+  try { checkAndDisableExpired(); } catch {}
+}, 60_000);
+
+process.on("SIGTERM", () => { console.log("Shutting down..."); clearInterval(trafficSyncInterval); clearInterval(expirySyncInterval); server.close(); closeDb(); });
+process.on("SIGINT",  () => { console.log("Shutting down..."); clearInterval(trafficSyncInterval); clearInterval(expirySyncInterval); server.close(); closeDb(); });

@@ -38,10 +38,6 @@ const platformFields: Record<string, { labelKey: string; key: string; type?: str
     { labelKey: "TENANT_ID", key: "tenantId" },
     { labelKey: "SUBSCRIPTION_ID", key: "subscriptionId" },
   ],
-  deno: [
-    { labelKey: "API Token (ddo_...)", key: "apiToken", type: "password" },
-    { labelKey: "Org Name", key: "orgName" },
-  ],
   railway: [
     { labelKey: "Account Token", key: "apiToken", type: "password" },
   ],
@@ -73,12 +69,6 @@ const PLATFORM_META: Record<string, {
     glow: "shadow-[0_0_32px_0px_rgba(59,130,246,0.3)]",
     badge: "bg-blue-600 text-white",
     icon: <img src={`data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><path fill="#fff" d="M33.34 6.54h26.04L33.78 89.39a4.1 4.1 0 01-3.89 2.85H8.14a4.1 4.1 0 01-3.87-5.46L27.45 9.39a4.1 4.1 0 013.89-2.85zm29.4 53.72H29.88a1.89 1.89 0 00-1.29 3.27l26.52 24.76a4.13 4.13 0 002.82 1.1h23.37z"/></svg>')}`} alt="azure" className="h-6 w-6" />,
-  },
-  deno: {
-    gradient: "from-gray-900 via-gray-800 to-gray-700",
-    glow: "shadow-[0_0_32px_0px_rgba(99,102,241,0.3)]",
-    badge: "bg-indigo-600 text-white",
-    icon: <img src="https://cdn.simpleicons.org/deno/ffffff" alt="deno" className="h-6 w-6" />,
   },
   railway: {
     gradient: "from-violet-700 via-violet-600 to-purple-500",
@@ -197,7 +187,6 @@ export default function TokensPage() {
                           <SelectItem value="vercel">Vercel</SelectItem>
                           <SelectItem value="netlify">Netlify</SelectItem>
                           <SelectItem value="azure">Azure</SelectItem>
-                          <SelectItem value="deno">Deno Deploy</SelectItem>
                           <SelectItem value="railway">Railway</SelectItem>
                           <SelectItem value="fastly">Fastly</SelectItem>
                         </SelectContent>

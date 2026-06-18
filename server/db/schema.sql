@@ -51,3 +51,34 @@ CREATE TABLE IF NOT EXISTS health_checks (
   response_time_ms INTEGER,
   checked_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS clients (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  uuid TEXT NOT NULL,
+  email TEXT NOT NULL UNIQUE,
+  inbound_tag TEXT NOT NULL,
+  traffic_limit INTEGER DEFAULT 0,
+  traffic_up INTEGER DEFAULT 0,
+  traffic_down INTEGER DEFAULT 0,
+  expiry_date TEXT,
+  max_ips INTEGER DEFAULT 0,
+  enabled INTEGER DEFAULT 1,
+  flow TEXT DEFAULT '',
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_clients_uuid_inbound ON clients(uuid, inbound_tag);
+CREATE INDEX IF NOT EXISTS idx_clients_inbound ON clients(inbound_tag);
+CREATE INDEX IF NOT EXISTS idx_clients_enabled ON clients(enabled);
+
+CREATE TABLE IF NOT EXISTS client_traffic_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  upload INTEGER DEFAULT 0,
+  download INTEGER DEFAULT 0,
+  recorded_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_traffic_history_client ON client_traffic_history(client_id);
+CREATE INDEX IF NOT EXISTS idx_traffic_history_date ON client_traffic_history(recorded_at);
